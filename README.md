@@ -15,30 +15,37 @@
 
 ## 安装（用户侧）
 
-1. **安装依赖包**（装入 DSH 的 profiles node_modules）：
+一条命令装好，无需手改任何 JSON/YAML 配置文件：
 
-   ```sh
-   # 已发布到 npm 时：
-   cd "$HOME/.dsh/profiles" && npm i dsh-feishu-bridge
-   # 或从 git 仓库：
-   cd "$HOME/.dsh/profiles" && npm i github:yourname/dsh-feishu-bridge
-   ```
+```sh
+# 已发布到 npm 时（推荐）：
+dsh plugin --profile web add dsh-feishu-connect
+# 或直接从 git 仓库安装：
+dsh plugin --profile web add github:limingboGitHub/dsh-feishu-connect
+```
 
-2. **启用**（二选一）：
-   - 方式 A（推荐，bundle）：把包名加进 profile 的 `dsh.profile.bundles`（`$DSH_HOME/profiles/<profile>/package.json`）：
-     ```json
-     { "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-feishu-bridge"] } } }
-     ```
-   - 方式 B（patch 行）：在 profile 的 `cordis.patch.yml` 加入：
-     ```yaml
-     - insert:
-         - id: feishu-bridge
-           name: dsh-feishu-bridge
-     ```
+> 首次安装若提示 `ERR_PNPM_IGNORED_BUILDS`（pnpm ≥10 默认拦截依赖的构建脚本，此处为 `protobufjs`）：编辑 `$DSH_HOME/profiles/web/pnpm-workspace.yaml`，把 `allowBuilds` 下的 `protobufjs` 从 `set this to true or false` 改为 `true`，然后重新执行上面的命令。忽略该提示不影响功能，但需要放行后重跑一次，`dsh plugin` 才会把本插件写入 profile。
 
-3. **重启** `dsh web`，然后在 设置 → 飞书机器人 填入 工作区 + AppID + AppSecret 并保存。
+`dsh plugin` 会自动完成三件事：把包安装进 profile 的 node_modules、把本包的 `cordis.patch.yml` 作为 bundle 补丁层挂到 profile、并把包名写进 `dsh.profile.bundles` —— 全程无需编辑任何配置文件。
 
-4. **飞书开放平台一次性配置**（与 cc-connect 相同）：
+装完**重启**：
+
+```sh
+dsh web
+```
+
+然后在 **设置 → 飞书机器人** 填入 工作区 + AppID + AppSecret 并保存（无需手动创建 `feishu.config.json`，设置页会自动写入工作区根目录）。
+
+> 手动安装（无 pnpm 环境）备选：把包放进 `$DSH_HOME/profiles/node_modules/`，在 profile 的 `cordis.patch.yml` 加入下面两行，重启即可：
+> ```yaml
+> - insert:
+>     - id: feishu-bridge
+>       name: dsh-feishu-bridge
+> ```
+>
+> ⚠️ **两种方式二选一，不要混用**：`dsh plugin` 会把包写入 `dsh.profile.bundles`（bundle 层），若 `cordis.patch.yml` 里还留着手动 `insert` 行，同一插件 id 会被注册两次，`dsh web` 启动会报 `duplicate loader entry id: feishu-bridge`。曾用手动方式装过的话，先删掉 `cordis.patch.yml` 里的 `insert` 行（恢复成 `[]`）再执行 `dsh plugin`，或反之。
+
+### 飞书开放平台一次性配置（与 cc-connect 相同）
    - 创建企业自建应用，启用机器人
    - 权限：`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`、`im:message:send_as_bot`、`im:message.reaction`（可选，处理中表情用）
    - 事件与回调 → 订阅方式选 **「使用长连接接收事件」**，添加事件 `im.message.receive_v1`
@@ -52,7 +59,13 @@ npm version patch
 npm publish
 ```
 
-发布前把 `package.json` 的 `name` 改成你的 scope（如 `@yourname/dsh-feishu-bridge`），并同步更新安装/启用文档里的包名。
+发布前把 `package.json` 的 `name` 改成你的 scope（如 `@yourname/dsh-feishu-connect`），并同步更新安装文档里的包名。用户侧安装命令随之变为：
+
+```sh
+dsh plugin --profile web add @yourname/dsh-feishu-connect
+```
+
+> 提示：GitHub 仓库名（`dsh-feishu-connect`）与包内 `name` 当前不一致（`dsh-feishu-bridge`）。`dsh plugin add github:...` 安装后，profile 里记录的是包内 `name`。若希望仓库名与包名统一，发布前把 `name` 一并改为 `dsh-feishu-connect` 即可（本 README 与 `cordis.patch.yml` 的引用保持不变，只有 `name` 字段和安装命令里的包名变）。
 
 ## 架构
 
