@@ -127,6 +127,32 @@ until then. Client-modules re-reads `client.js` bytes per request, so a
 browser refresh picks up client changes without a full restart, but the host
 half needs the restart.
 
+## Scan-to-create robot (onboarding)
+
+The settings page can create a bot without open-platform credentials, using
+the **Feishu official app-registration device flow** — the same public API
+cc-connect uses (`POST https://accounts.feishu.cn/oauth/v1/app/registration`,
+form-encoded; `accounts.larksuite.com` for Lark). No app credentials needed
+to call it:
+
+1. `action=init` → `supported_auth_methods` must include `client_secret`.
+2. `action=begin` + `archetype=PersonalAgent`, `auth_method=client_secret`,
+   `request_user_info=open_id` → `device_code` + `verification_uri_complete`
+   (the QR payload) + `user_code` + `expires_in` (3600) + `interval` (5).
+3. Backend renders `verification_uri_complete` as a QR PNG via the `qrcode`
+   dep (dynamic `import('qrcode')` — it is CJS, this host is ESM) and returns
+   a data URL.
+4. Client polls `action=poll` + `device_code`; `client_id`/`client_secret`
+   appear once the user scans and confirms. `authorization_pending` = keep
+   polling, `slow_down` = back off, `access_denied`/`expired_token` = abort.
+5. Client auto-fills AppID/AppSecret; user clicks save. Feishu usually
+   pre-provisions permissions/event subscription, but verify publish state in
+   the open platform.
+
+Routes: `POST /feishu/admin/onboard` (begin + QR), `POST
+/feishu/admin/onboard/poll` (poll). Maintained only for the China (feishu)
+domain for now.
+
 ## Helper / process facts
 
 - `HELPER_PATH = fileURLToPath(new URL('./helper.cjs', import.meta.url))` —
