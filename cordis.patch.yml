@@ -1,7 +1,7 @@
-# dsh-feishu-bridge bundle patch: applied automatically when this package is
+# dsh-feishu-connect bundle patch: applied automatically when this package is
 # listed in a profile's dsh.profile.bundles (or the row is copied into the
 # profile's cordis.patch.yml). One row drives both halves: the loader imports
 # the package main (host plugin) and client-modules serves ./client.js.
 - insert:
     - id: feishu-bridge
-      name: dsh-feishu-bridge
+      name: dsh-feishu-connect

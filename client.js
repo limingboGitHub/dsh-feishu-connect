@@ -1,16 +1,16 @@
-// dsh-feishu-bridge — browser bundle, hand-authored in the exact artifact
+// dsh-feishu-connect — browser bundle, hand-authored in the exact artifact
 // format tsdown emits for client packages: a closure factory registered through
 // window.__ModuleLoader__.load({ id, factory }), with platform modules (react)
 // resolved through the injected require (the shell's frozen module table).
 // RPC to the host goes through same-origin admin routes on the web server.
 window.__ModuleLoader__.load({
-  id: 'dsh-feishu-bridge',
+  id: 'dsh-feishu-connect',
   factory: (require) => {
     const React = require('react')
     const h = React.createElement
 
     return {
-      name: 'dsh-feishu-bridge',
+      name: 'dsh-feishu-connect',
       inject: ['slots'],
       apply(ctx) {
         const slots = ctx.get('slots')

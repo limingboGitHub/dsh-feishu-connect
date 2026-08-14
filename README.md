@@ -1,4 +1,4 @@
-# dsh-feishu-bridge
+# dsh-feishu-connect
 
 把飞书（Lark）机器人接入 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Agent 会话：通过官方 SDK **长连接**接收消息（无需公网 IP/域名/隧道），支持 cc-connect 风格的命令、每聊天独立会话、处理中表情、Markdown 卡片回复，并提供设置页 UI。
 
@@ -40,7 +40,7 @@ dsh web
 > ```yaml
 > - insert:
 >     - id: feishu-bridge
->       name: dsh-feishu-bridge
+>       name: dsh-feishu-connect
 > ```
 >
 > ⚠️ **两种方式二选一，不要混用**：`dsh plugin` 会把包写入 `dsh.profile.bundles`（bundle 层），若 `cordis.patch.yml` 里还留着手动 `insert` 行，同一插件 id 会被注册两次，`dsh web` 启动会报 `duplicate loader entry id: feishu-bridge`。曾用手动方式装过的话，先删掉 `cordis.patch.yml` 里的 `insert` 行（恢复成 `[]`）再执行 `dsh plugin`，或反之。
@@ -54,18 +54,19 @@ dsh web
 ## 发布（维护者侧）
 
 ```sh
-npm login
+# 1. 登录 npm（首次）——注意用官方 registry，镜像源不能发布
+npm login --registry https://registry.npmjs.org
+
+# 2. 改版本号并发布
 npm version patch
-npm publish
+npm publish --registry https://registry.npmjs.org
 ```
 
-发布前把 `package.json` 的 `name` 改成你的 scope（如 `@yourname/dsh-feishu-connect`），并同步更新安装文档里的包名。用户侧安装命令随之变为：
+包名已定为 `dsh-feishu-connect`（与 GitHub 仓库同名，npm 上可用的全局名）。若希望发布为 scope 包（如 `@yourname/dsh-feishu-connect`），把 `package.json` 的 `name` 改成 scope 形式后，用户侧安装命令随之变为：
 
 ```sh
 dsh plugin --profile web add @yourname/dsh-feishu-connect
 ```
-
-> 提示：GitHub 仓库名（`dsh-feishu-connect`）与包内 `name` 当前不一致（`dsh-feishu-bridge`）。`dsh plugin add github:...` 安装后，profile 里记录的是包内 `name`。若希望仓库名与包名统一，发布前把 `name` 一并改为 `dsh-feishu-connect` 即可（本 README 与 `cordis.patch.yml` 的引用保持不变，只有 `name` 字段和安装命令里的包名变）。
 
 ## 架构
 
@@ -76,7 +77,7 @@ dsh plugin --profile web add @yourname/dsh-feishu-connect
                                         ⇅ ctx.agents / ctx.fs / ctx.shell / fetch
                                    Agent 会话（配置工作区匹配）
                                         ⇅ 同源 admin 路由 /feishu/admin/*
-                                   client.js（设置页 UI，行 dsh-feishu-bridge）
+                                   client.js（设置页 UI，行 dsh-feishu-connect）
 ```
 
 - 配置：工作区根目录 `feishu.config.json`（`{ workspace, appId, appSecret, reactionEmoji? }`），热读；模板见包内 `feishu.config.example.json`（也可直接在设置页填写并保存）

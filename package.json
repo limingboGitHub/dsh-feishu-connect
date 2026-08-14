@@ -1,5 +1,5 @@
 {
-  "name": "dsh-feishu-bridge",
+  "name": "dsh-feishu-connect",
   "version": "1.0.0",
   "description": "Bridge Feishu (Lark) chats with a DeepSeek Harness agent conversation: official-SDK long connection (no public URL), cc-connect-style commands (/new /switch /list /help), per-chat sessions, typing reactions, markdown cards, and a settings-page UI.",
   "type": "module",
@@ -20,6 +20,9 @@
   ],
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.73.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.5"
   },
   "dsh": {
     "bundle": {

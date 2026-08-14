@@ -1,4 +1,4 @@
-// dsh-feishu-bridge — host plugin (node half).
+// dsh-feishu-connect — host plugin (node half).
 // Bridges Feishu (Lark) chats with the configured workspace's agent conversation
 // via the official SDK long connection (helper.js subprocess), with cc-connect-style
 // commands (/new /switch /list /help), per-chat sessions, a typing reaction,
