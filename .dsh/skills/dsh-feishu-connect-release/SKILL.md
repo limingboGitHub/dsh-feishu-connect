@@ -86,6 +86,23 @@ After publish, `npm view dsh-feishu-connect version` may briefly show the
 previous version due to registry cache; wait a few seconds and re-query
 `dist-tags.latest` to confirm.
 
+### pnpm minimumReleaseAge (supply-chain gate)
+
+pnpm ≥11 gates installs of freshly-published packages by default
+(`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`). Right after publishing a new
+version, an existing profile that tries to install it is rejected. Fix in
+the profile's `pnpm-workspace.yaml`:
+
+```yaml
+minimumReleaseAge: 0
+```
+
+(or add the exact `name@version` under `minimumReleaseAgeExclude`). Do NOT
+bump-and-install in the same session without this. Also, when editing
+profile JSON/YAML via PowerShell, write UTF-8 WITHOUT BOM — a BOM makes
+`dsh --dump-config` fail with "Unexpected token" at JSON parse, and can
+corrupt loader patches.
+
 ## Install verification (always run before tagging a release)
 
 1. Create a throwaway profile and install from the registry tarball:
