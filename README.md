@@ -6,13 +6,14 @@
 
 ## 功能
 
+- **多机器人**：一个实例同时运行多个机器人，每个绑定一个工作区（workspace），独立长连接、会话状态与命令处理
 - **接收/发送**：飞书 `im.message.receive_v1` 长连接 → 注入 Agent 会话 → 回复以交互卡片（Markdown）发回同一会话
 - **命令**：`/new [名称]` 新建独立会话、`/switch <序号>` 切换、`/list` 列出、`/help` 帮助（支持前缀匹配 `/n` `/sw` `/l` `/h`）
 - **会话**：按配置工作区精确匹配主会话；每聊天独立会话持久化（重启后自动恢复）；`agents.create/resume` 均注入模型选项（修复 `{{model}}` 变量缺失）
 - **处理中表情**：消息到达加 `OnIt` 表情，回复送达后撤销（cc-connect 时机）；可配置 `reactionEmoji`，`none` 关闭
-- **设置页**：设置 → 飞书机器人（工作区 / AppID / AppSecret / 状态 / 测试发送）
+- **设置页**：设置 → 飞书机器人（机器人列表：增删改 / 各自工作区 / 状态 / 测试发送）
 - **扫码创建**：设置页生成二维码，用飞书 App 扫码即自动创建机器人并获取 AppID/AppSecret（飞书官方应用注册流程，无需手动去开放平台建应用）
-- **工具**：`feishu_send`（Agent 可主动发消息，缺省发到最近会话）
+- **工具**：`feishu_send`（Agent 可主动发消息，可用 `appId` 指定机器人，缺省发到最近收到消息的机器人）
 
 ## 安装（用户侧）
 
@@ -83,9 +84,9 @@ dsh plugin --profile web add @yourname/dsh-feishu-connect
                                    client.js（设置页 UI，行 dsh-feishu-connect）
 ```
 
-- 配置：`~/.cc-connect/feishu.config.json`（`{ workspace, appId, appSecret, reactionEmoji? }`），热读；模板见包内 `feishu.config.example.json`（也可直接在设置页填写并保存）
-- 会话状态：`~/.cc-connect/state.json`
-- Host 插件注册：`feishu_send` 工具、`/feishu/admin/*` 路由、helper 进程管理（崩溃自动重启、凭据变更自动重连）
+- 配置：`~/.cc-connect/feishu.config.json`（`{ bots: [{ name, workspace, appId, appSecret, reactionEmoji? }] }`，兼容旧单对象格式自动迁移），热读；模板见包内 `feishu.config.example.json`（也可直接在设置页填写并保存）
+- 会话状态：`~/.cc-connect/state-<appId>.json`（每机器人独立）
+- Host 插件注册：`feishu_send` 工具、`/feishu/admin/*` 路由、每机器人一个 helper 进程（崩溃自动重启、凭据变更自动重连）
 
 ## 开发
 

@@ -34,25 +34,19 @@ window.__ModuleLoader__.load({
             label: '飞书机器人',
           },
           () => {
-            const [form, setForm] = React.useState({ workspace: '', appId: '', appSecret: '', hasSecret: false })
-            const [connection, setConnection] = React.useState('...')
-            const [lastChatId, setLastChatId] = React.useState('')
+            const [bots, setBots] = React.useState([])
             const [notice, setNotice] = React.useState('')
             const [busy, setBusy] = React.useState(false)
-            const [testText, setTestText] = React.useState('这是一条来自飞书桥接插件的测试消息')
+            const [editing, setEditing] = React.useState(null)     // appId being edited
+            const [draft, setDraft] = React.useState({ name: '', workspace: '', appId: '', appSecret: '' })
+            const [scan, setScan] = React.useState({ active: false, appId: '', qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
+            const scanTimer = React.useRef(null)
             const [testOut, setTestOut] = React.useState('')
 
             const refresh = () => {
               admin('status').then((v) => {
-                if (!v || typeof v !== 'object') return
-                setForm((f) => ({
-                  ...f,
-                  workspace: typeof v.workspace === 'string' ? v.workspace : '',
-                  appId: typeof v.appId === 'string' ? v.appId : '',
-                  hasSecret: !!v.hasSecret,
-                }))
-                setConnection(typeof v.connection === 'string' ? v.connection : 'idle')
-                setLastChatId(typeof v.lastChatId === 'string' ? v.lastChatId : '')
+                if (!v || !Array.isArray(v.bots)) return
+                setBots(v.bots)
               }).catch((e) => {
                 setNotice('读取配置失败: ' + String((e && e.message) || e))
               })
@@ -60,43 +54,72 @@ window.__ModuleLoader__.load({
 
             React.useEffect(() => { refresh() }, [])
 
-            const save = () => {
+            const saveBots = (list, done) => {
               setBusy(true)
               setNotice('')
-              admin('config', { method: 'POST', body: JSON.stringify({
-                workspace: form.workspace.trim(),
-                appId: form.appId.trim(),
-                appSecret: form.appSecret,
-              }) }).then((v) => {
+              admin('config', { method: 'POST', body: JSON.stringify({ bots: list }) }).then((v) => {
                 setBusy(false)
                 setNotice(String(v.message || (v.ok ? '已保存' : '保存失败')))
-                setForm((f) => ({ ...f, appSecret: '' }))
                 refresh()
+                if (done) done()
               }).catch((e) => {
                 setBusy(false)
                 setNotice('保存失败: ' + String((e && e.message) || e))
               })
             }
 
-            const sendTest = () => {
-              setBusy(true)
+            const startEdit = (bot) => {
+              setEditing(bot ? bot.appId : '__new__')
+              setDraft({
+                name: bot ? bot.name : '',
+                workspace: bot ? bot.workspace : '',
+                appId: bot ? bot.appId : '',
+                appSecret: '',
+              })
               setTestOut('')
-              admin('send-test', { method: 'POST', body: JSON.stringify({ text: testText }) }).then((v) => {
+            }
+
+            const cancelEdit = () => {
+              setEditing(null)
+              setDraft({ name: '', workspace: '', appId: '', appSecret: '' })
+            }
+
+            const submitEdit = () => {
+              const appId = draft.appId.trim()
+              if (!appId) { setNotice('App ID 不能为空'); return }
+              const existing = bots.find((b) => b.appId === appId)
+              const entry = {
+                name: draft.name.trim() || appId,
+                workspace: draft.workspace.trim(),
+                appId,
+                appSecret: draft.appSecret.trim(),
+              }
+              let next
+              if (existing) {
+                // keep the stored secret unless a new one was typed
+                next = bots.map((b) => b.appId === appId ? { ...b, ...entry, appSecret: entry.appSecret || b.appSecret } : b)
+              } else {
+                next = [...bots, entry]
+              }
+              saveBots(next, () => cancelEdit())
+            }
+
+            const removeBot = (appId) => {
+              if (!globalThis.confirm('确定删除机器人 ' + appId + '？')) return
+              setBusy(true)
+              admin('delete-bot', { method: 'POST', body: JSON.stringify({ appId }) }).then((v) => {
                 setBusy(false)
-                setTestOut('ok=' + String(v.ok) + ' status=' + String(v.status) + ' ' + String(v.detail || ''))
+                setNotice(String(v.message || (v.ok ? '已删除' : '删除失败')))
                 refresh()
               }).catch((e) => {
                 setBusy(false)
-                setTestOut('发送失败: ' + String((e && e.message) || e))
+                setNotice('删除失败: ' + String((e && e.message) || e))
               })
             }
 
             // ---- scan-to-create robot (Feishu official app-registration device flow) ----
-            const [scan, setScan] = React.useState({ active: false, qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
-            const scanTimer = React.useRef(null)
-
             const startScan = () => {
-              setScan({ active: true, qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
+              setScan({ active: true, appId: '', qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
               admin('onboard', { method: 'POST', body: '{}' }).then((v) => {
                 if (!v || !v.ok) throw new Error(String((v && v.message) || '生成二维码失败'))
                 setScan((s) => ({
@@ -114,9 +137,17 @@ window.__ModuleLoader__.load({
                     if (p && p.done && typeof p.appId === 'string' && typeof p.appSecret === 'string') {
                       if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
                       setScan((s) => ({ ...s, done: true, error: '' }))
-                      setForm((f) => ({ ...f, appId: p.appId, appSecret: p.appSecret, hasSecret: true }))
-                      setNotice('扫码成功！已获取 AppID/AppSecret，请点击「保存配置」完成绑定。')
-                      refresh()
+                      // auto-add the new bot to the list via the config upsert
+                      admin('config', { method: 'POST', body: JSON.stringify({
+                        appId: p.appId,
+                        appSecret: p.appSecret,
+                        workspace: '',
+                        name: '机器人 ' + p.appId,
+                      }) }).then(() => {
+                        setNotice('扫码成功！已自动添加机器人 ' + p.appId + '，请编辑其工作区路径后保存。')
+                        refresh()
+                        startEdit({ name: '机器人 ' + p.appId, workspace: '', appId: p.appId, appSecret: '' })
+                      })
                     } else if (p && p.error) {
                       if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
                       setScan((s) => ({ ...s, error: String(p.message || p.error) }))
@@ -133,57 +164,111 @@ window.__ModuleLoader__.load({
 
             const stopScan = () => {
               if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
-              setScan({ active: false, qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
+              setScan({ active: false, appId: '', qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
             }
 
-            const rowStyle = { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }
+            const sendTest = (bot) => {
+              setBusy(true)
+              setTestOut('')
+              admin('send-test', { method: 'POST', body: JSON.stringify({ appId: bot.appId, text: '这是一条来自飞书桥接插件的测试消息' }) }).then((v) => {
+                setBusy(false)
+                setTestOut(bot.appId + ': ok=' + String(v.ok) + ' status=' + String(v.status) + ' ' + String(v.detail || ''))
+              }).catch((e) => {
+                setBusy(false)
+                setTestOut(bot.appId + ': 发送失败: ' + String((e && e.message) || e))
+              })
+            }
+
+            const rowStyle = { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' }
             const labelStyle = { fontSize: '12px', opacity: 0.75 }
             const inputStyle = { padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', width: '100%', boxSizing: 'border-box' }
             const btnStyle = { padding: '6px 14px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', cursor: 'pointer' }
+            const cardStyle = { border: '1px solid rgba(128,128,128,0.25)', borderRadius: '8px', padding: '12px', marginBottom: '12px' }
 
-            return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '520px' } },
-              h('p', { style: labelStyle }, '配置写入 ~/.cc-connect/feishu.config.json（与 cc-connect 同目录）；长连接模式无需公网地址。桥接目标：配置的 workspace 对应的会话。支持 /new /switch /list /help 命令。'),
-              h('div', { style: rowStyle },
-                h('label', { style: labelStyle }, '工作区路径 (workspace)'),
-                h('input', { style: inputStyle, value: form.workspace, placeholder: 'D:\\path\\to\\workspace', onChange: (e) => setForm((f) => ({ ...f, workspace: e.target.value })) }),
-              ),
-              h('div', { style: rowStyle },
-                h('label', { style: labelStyle }, 'App ID'),
-                h('input', { style: inputStyle, value: form.appId, placeholder: 'cli_...', onChange: (e) => setForm((f) => ({ ...f, appId: e.target.value })) }),
-              ),
-              h('div', { style: rowStyle },
-                h('label', { style: labelStyle }, 'App Secret'),
-                h('input', { style: inputStyle, type: 'password', value: form.appSecret, placeholder: form.hasSecret ? '已配置（留空保持不变）' : '请输入 App Secret', onChange: (e) => setForm((f) => ({ ...f, appSecret: e.target.value })) }),
-              ),
-              h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' } },
-                h('span', { style: { fontSize: '12px' } }, '连接状态: ' + connection),
-                h('button', { style: btnStyle, onClick: refresh, disabled: busy }, '刷新'),
-              ),
-              h('div', { style: { display: 'flex', gap: '10px', marginBottom: '12px' } },
-                h('button', { style: btnStyle, onClick: save, disabled: busy }, busy ? '处理中...' : '保存配置'),
-              ),
-              h('hr', { style: { border: 'none', borderTop: '1px solid rgba(128,128,128,0.25)', margin: '8px 0 12px' } }),
-              h('div', { style: rowStyle },
-                h('label', { style: labelStyle }, '没有机器人？扫码一键创建（飞书官方注册流程，自动获取 AppID/AppSecret）'),
-                h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } },
-                  h('button', { style: btnStyle, onClick: startScan, disabled: scan.active || busy }, scan.active ? '等待扫码...' : '生成二维码'),
-                  scan.active ? h('button', { style: btnStyle, onClick: stopScan }, '取消') : null,
+            const input = (field, placeholder, type) =>
+              h('input', { style: inputStyle, type: type || 'text', value: draft[field], placeholder, onChange: (e) => setDraft((d) => ({ ...d, [field]: e.target.value })) })
+
+            return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '640px' } },
+              h('p', { style: labelStyle }, '配置写入 ~/.cc-connect/feishu.config.json；长连接模式无需公网地址。每个机器人绑定一个工作区（workspace），其消息进入该工作区的 Agent 会话。支持 /new /switch /list /help 命令。'),
+
+              // ---- bot list ----
+              bots.length === 0 && editing === null
+                ? h('div', { style: { ...cardStyle, textAlign: 'center', color: 'rgba(128,128,128,0.8)' } },
+                    h('p', { style: { margin: '0 0 10px', fontSize: '13px' } }, '尚未配置任何机器人'),
+                    h('button', { style: btnStyle, onClick: () => startEdit(null) }, '手动添加'),
+                    h('span', { style: { margin: '0 8px', opacity: 0.6 } }, '或'),
+                    h('button', { style: btnStyle, onClick: startScan }, '扫码创建'),
+                  )
+                : null,
+
+              bots.map((bot) =>
+                h('div', { key: bot.appId, style: cardStyle },
+                  h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' } },
+                    h('span', { style: { fontWeight: 600, fontSize: '13px' } }, bot.name || bot.appId),
+                    h('span', { style: { fontSize: '12px' } }, '连接状态: ' + bot.connection),
+                  ),
+                  h('div', { style: { fontSize: '12px', marginBottom: '6px', wordBreak: 'break-all', opacity: 0.8 } },
+                    'AppID: ' + bot.appId + ' | 工作区: ' + (bot.workspace || '（未设置）') + (bot.hasSecret ? '' : ' | ⚠️ 未配置 Secret'),
+                  ),
+                  bot.lastChatId ? h('div', { style: { fontSize: '12px', marginBottom: '6px', opacity: 0.6 } }, '最近会话: ' + bot.lastChatId) : null,
+                  h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+                    h('button', { style: btnStyle, onClick: () => startEdit(bot) }, '编辑'),
+                    h('button', { style: btnStyle, onClick: () => sendTest(bot), disabled: busy }, '测试发送'),
+                    h('button', { style: { ...btnStyle, color: '#e5534b' }, onClick: () => removeBot(bot.appId) }, '删除'),
+                  ),
                 ),
-                scan.qrDataUrl ? h('img', { src: scan.qrDataUrl, alt: '扫码创建机器人', style: { width: '220px', height: '220px', marginBottom: '8px', border: '1px solid rgba(128,128,128,0.35)', borderRadius: '6px' } }) : null,
-                scan.userCode ? h('div', { style: { fontSize: '12px', marginBottom: '8px' } }, '验证码: ' + scan.userCode + '（也可在飞书里输入）') : null,
-                scan.error ? h('div', { style: { fontSize: '12px', color: '#e5534b', marginBottom: '8px', wordBreak: 'break-all' } }, scan.error) : null,
-                scan.done ? h('div', { style: { fontSize: '12px', marginBottom: '8px' } }, '✅ 已获取 AppID/AppSecret，已填入上方表单，点击「保存配置」完成绑定。') : null,
               ),
+
+              // ---- add button when list exists ----
+              bots.length > 0 && editing === null
+                ? h('div', { style: { display: 'flex', gap: '10px', marginBottom: '12px' } },
+                    h('button', { style: btnStyle, onClick: () => startEdit(null) }, '+ 添加机器人'),
+                    h('button', { style: btnStyle, onClick: startScan }, '扫码创建'),
+                  )
+                : null,
+
+              // ---- scan card ----
+              scan.active
+                ? h('div', { style: cardStyle },
+                    h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } },
+                      h('span', { style: { fontSize: '12px' } }, '请用飞书 App 扫码创建机器人（有效期约 1 小时）'),
+                      h('button', { style: btnStyle, onClick: stopScan }, '取消'),
+                    ),
+                    scan.qrDataUrl ? h('img', { src: scan.qrDataUrl, alt: '扫码创建机器人', style: { width: '220px', height: '220px', marginBottom: '8px', border: '1px solid rgba(128,128,128,0.35)', borderRadius: '6px' } }) : null,
+                    scan.userCode ? h('div', { style: { fontSize: '12px', marginBottom: '8px' } }, '验证码: ' + scan.userCode + '（也可在飞书里输入）') : null,
+                    scan.error ? h('div', { style: { fontSize: '12px', color: '#e5534b', marginBottom: '8px', wordBreak: 'break-all' } }, scan.error) : null,
+                    scan.done ? h('div', { style: { fontSize: '12px', marginBottom: '8px' } }, '✅ 扫码成功，正在添加机器人...') : null,
+                  )
+                : null,
+
+              // ---- edit form ----
+              editing !== null
+                ? h('div', { style: cardStyle },
+                    h('div', { style: { fontSize: '13px', fontWeight: 600, marginBottom: '10px' } }, editing === '__new__' ? '添加机器人' : '编辑机器人 ' + editing),
+                    h('div', { style: rowStyle },
+                      h('label', { style: labelStyle }, '名称 (name)'),
+                      input('name', '如：运维机器人'),
+                    ),
+                    h('div', { style: rowStyle },
+                      h('label', { style: labelStyle }, '工作区路径 (workspace)'),
+                      input('workspace', 'D:\\path\\to\\workspace'),
+                    ),
+                    h('div', { style: rowStyle },
+                      h('label', { style: labelStyle }, 'App ID'),
+                      input('appId', 'cli_...'),
+                    ),
+                    h('div', { style: rowStyle },
+                      h('label', { style: labelStyle }, 'App Secret'),
+                      input('appSecret', '请输入 App Secret', 'password'),
+                    ),
+                    h('div', { style: { display: 'flex', gap: '10px' } },
+                      h('button', { style: btnStyle, onClick: submitEdit, disabled: busy }, busy ? '处理中...' : '保存'),
+                      h('button', { style: btnStyle, onClick: cancelEdit }, '取消'),
+                    ),
+                  )
+                : null,
+
               notice ? h('div', { style: { fontSize: '12px', marginBottom: '12px', wordBreak: 'break-all' } }, notice) : null,
-              h('hr', { style: { border: 'none', borderTop: '1px solid rgba(128,128,128,0.25)', margin: '8px 0 12px' } }),
-              h('div', { style: rowStyle },
-                h('label', { style: labelStyle }, '测试内容'),
-                h('input', { style: inputStyle, value: testText, onChange: (e) => setTestText(e.target.value) }),
-              ),
-              h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' } },
-                h('button', { style: btnStyle, onClick: sendTest, disabled: busy }, '发送测试消息'),
-                lastChatId ? h('span', { style: { fontSize: '12px', opacity: 0.75 } }, '将发送到最近会话: ' + lastChatId) : null,
-              ),
               testOut ? h('div', { style: { fontSize: '12px', wordBreak: 'break-all' } }, testOut) : null,
             )
           },

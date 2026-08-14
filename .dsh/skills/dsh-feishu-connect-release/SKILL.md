@@ -31,12 +31,18 @@ README.md           User-facing install/publish docs
 
 ## Config convention (cc-connect alignment)
 
-- Config: `~/.cc-connect/feishu.config.json` — `{ workspace, appId, appSecret, reactionEmoji? }`
-- Session state: `~/.cc-connect/state.json` (chat→session mapping)
+- Config: `~/.cc-connect/feishu.config.json` —
+  `{ "bots": [{ name, workspace, appId, appSecret, reactionEmoji? }] }`.
+  Legacy single-object `{ workspace, appId, appSecret }` is auto-wrapped into
+  `bots` on read (backward compatible).
+- Session state: `~/.cc-connect/state-<appId>.json` — one file per bot
+  (appId sanitized to `[a-zA-Z0-9]`).
 - Resolved with `os.homedir()` in `index.js`; never in the workspace root or
   any code repository. `reactionEmoji` may be `'none'` to disable the typing
   reaction. Both files are re-read/written on demand; `mkdirSync(recursive)`
   creates `~/.cc-connect` on first save.
+- Multi-bot: each bot owns its helper process, event chain, chats map, seen
+  dedupe set, token cache, lastChatId, and status — see `makeBot(cfg)`.
 - Do NOT move config back into the workspace: that was the old design and
   leaks credentials into the harness repo.
 
