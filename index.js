@@ -66,6 +66,7 @@ export function apply(ctx) {
         appId,
         appSecret: typeof bot.appSecret === 'string' ? bot.appSecret : '',
         reactionEmoji: typeof bot.reactionEmoji === 'string' ? bot.reactionEmoji : undefined,
+        ownerOpenId: typeof bot.ownerOpenId === 'string' ? bot.ownerOpenId : '',
       })
     }
     return cleaned
@@ -138,17 +139,18 @@ export function apply(ctx) {
     throw new Error('tenant_access_token failed: ' + (res.text || JSON.stringify(res)))
   }
 
-  async function sendAppMessage(bot, appId, appSecret, chatId, text) {
+  async function sendAppMessage(bot, appId, appSecret, target, text, receiveIdType) {
     const accessToken = await tenantAccessToken(bot, appId, appSecret)
     const card = {
       config: { wide_screen_mode: true },
       elements: [{ tag: 'markdown', content: text }],
     }
+    const type = receiveIdType || 'chat_id'
     return httpJson(
-      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
+      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=' + type,
       'POST',
       { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
-      { receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(card) },
+      { receive_id: target, msg_type: 'interactive', content: JSON.stringify(card) },
     )
   }
 
@@ -159,11 +161,16 @@ export function apply(ctx) {
     if (!hasCreds) {
       return { status: 0, text: '未配置 appId/appSecret：请到 设置 → 飞书机器人 填写并保存' }
     }
+    // Delivery target priority:
+    // 1. explicit chat_id
+    // 2. the most recent chat this bot has seen
+    // 3. the scanning user's open_id (creates a p2p chat automatically, so a
+    //    brand-new bot can send its first message without any prior chat)
     const target = chatId || bot.lastChatId || ''
-    if (!target) {
-      return { status: 0, text: '没有可用的 chat_id：先在飞书里给机器人发一条消息（插件会自动记录该会话），或手动填写 chat_id' }
-    }
-    return sendAppMessage(bot, cfg.appId, cfg.appSecret, target, text)
+    if (target) return sendAppMessage(bot, cfg.appId, cfg.appSecret, target, text, 'chat_id')
+    const owner = bot.cfg.ownerOpenId || ''
+    if (owner) return sendAppMessage(bot, cfg.appId, cfg.appSecret, owner, text, 'open_id')
+    return { status: 0, text: '没有可用的 chat_id：先在飞书里给机器人发一条消息（插件会自动记录该会话），或手动填写 chat_id' }
   }
 
   // ---- typing reaction (cc-connect StartTyping): added on arrival, removed
@@ -410,11 +417,28 @@ export function apply(ctx) {
 
     const mainAgent = pickAgent(cfg.workspace)
     const chat = await bot.ensureChat(chatId)
-    const agent = await bot.resolveActiveAgent(chat, mainAgent)
+    let agent = await bot.resolveActiveAgent(chat, mainAgent)
     if (!agent) {
-      await sendFeishuText(bot, chatId, '当前没有可用的 Agent 会话：配置的工作区（'
-        + (cfg.workspace || workspaceRoot() || '?') + '）没有打开的会话，或会话恢复失败。发送 /list 查看可用会话。')
-      return
+      // No live agent session in the configured workspace yet — auto-create one
+      // bound to that workspace instead of failing, so the first message from a
+      // brand-new bot just works (the user does not have to open a session in
+      // the GUI first).
+      console.log('[feishu] no live agent in workspace ' + (cfg.workspace || '?') + '; auto-creating one')
+      try {
+        const sessionId = 'feishu-main-' + Date.now().toString(36)
+        const handle = await createDedicated(bot, sessionId, undefined)
+        agent = handle.agent
+        // make the auto-created session the chat's main session so later
+        // messages keep landing in it
+        chat.sessions = [{ id: sessionId, label: '主会话', type: 'dedicated', handle }]
+        chat.activeIndex = 0
+        await bot.persistChat(chatId, chat)
+      } catch (error) {
+        console.log('[feishu] auto-create agent failed: ' + String(error && error.stack || error))
+        await sendFeishuText(bot, chatId, '当前没有可用的 Agent 会话，且自动创建失败：'
+          + (cfg.workspace || workspaceRoot() || '?') + '。请先在工作区打开一个会话，或发送 /new 手动创建。')
+        return
+      }
     }
 
     const openId = evt.sender && evt.sender.sender_id && evt.sender.sender_id.open_id || ''
@@ -777,6 +801,7 @@ export function apply(ctx) {
         appId: typeof b.appId === 'string' ? b.appId.trim() : '',
         appSecret: typeof b.appSecret === 'string' ? b.appSecret.trim() : '',
         reactionEmoji: typeof b.reactionEmoji === 'string' ? b.reactionEmoji : undefined,
+        ownerOpenId: typeof b.ownerOpenId === 'string' ? b.ownerOpenId : '',
       })).filter((b) => b.appId)
       next = incoming.map((b) => {
         const prev = current.find((c) => c.appId === b.appId)
@@ -784,6 +809,7 @@ export function apply(ctx) {
           ...b,
           appSecret: b.appSecret || (prev ? prev.appSecret : ''),
           reactionEmoji: b.reactionEmoji !== undefined ? b.reactionEmoji : (prev ? prev.reactionEmoji : undefined),
+          ownerOpenId: b.ownerOpenId || (prev ? prev.ownerOpenId : ''),
         }
       })
     } else if (body.appId) {
@@ -797,6 +823,7 @@ export function apply(ctx) {
           ? body.appSecret.trim()
           : (index >= 0 ? next[index].appSecret : ''),
         reactionEmoji: typeof body.reactionEmoji === 'string' ? body.reactionEmoji : (index >= 0 ? next[index].reactionEmoji : undefined),
+        ownerOpenId: typeof body.ownerOpenId === 'string' ? body.ownerOpenId : (index >= 0 ? next[index].ownerOpenId : ''),
       }
       if (index >= 0) next[index] = entry
       else next.push(entry)

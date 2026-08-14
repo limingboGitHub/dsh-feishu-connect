@@ -149,6 +149,7 @@ window.__ModuleLoader__.load({
                       admin('config', { method: 'POST', body: JSON.stringify({
                         appId: p.appId,
                         appSecret: p.appSecret,
+                        ownerOpenId: typeof p.ownerOpenId === 'string' ? p.ownerOpenId : '',
                         workspace: '',
                         name: '机器人 ' + p.appId,
                       }) }).then(() => {
