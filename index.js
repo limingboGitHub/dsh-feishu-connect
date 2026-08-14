@@ -5,6 +5,9 @@
 // markdown cards, and same-origin admin routes used by the settings-page bundle.
 
 import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'feishu-bridge'
@@ -34,7 +37,10 @@ export function apply(ctx) {
   const chats = new Map()         // chatId -> { sessions: [], activeIndex }
   let stateCache = undefined      // loaded .dsh-feishu/state.json content
 
-  // ---- config: <workspaceRoot>/feishu.config.json, re-read periodically ----
+  // ---- config: ~/.cc-connect/feishu.config.json (cc-connect convention: the
+  // global config lives in the user's home directory, not the workspace) ----
+  const configPath = () => join(homedir(), '.cc-connect', 'feishu.config.json')
+
   const workspaceRoot = () => {
     const sp = ctx.get('sandboxPolicy')
     return sp && typeof sp.workspaceRoot === 'string' ? sp.workspaceRoot : undefined
@@ -42,21 +48,18 @@ export function apply(ctx) {
 
   async function readConfig() {
     try {
-      const root = workspaceRoot()
-      if (!root) return {}
-      const target = await ctx.fs.resolve('feishu.config.json', { cwd: root })
-      const text = await ctx.fs.readText(target)
-      return JSON.parse(text)
+      const target = configPath()
+      if (!existsSync(target)) return {}
+      return JSON.parse(readFileSync(target, 'utf8'))
     } catch {
       return {}
     }
   }
 
   async function writeConfig(cfg) {
-    const root = workspaceRoot()
-    if (!root) throw new Error('workspace root unavailable')
-    const target = await ctx.fs.resolve('feishu.config.json', { cwd: root })
-    await ctx.fs.writeText(target, JSON.stringify(cfg, null, 2))
+    const target = configPath()
+    mkdirSync(join(homedir(), '.cc-connect'), { recursive: true })
+    writeFileSync(target, JSON.stringify(cfg, null, 2))
   }
 
   // ---- path helpers ----
@@ -65,19 +68,20 @@ export function apply(ctx) {
     return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   }
 
+  // Session state lives with the config under ~/.cc-connect (cc-connect
+  // convention: global data dir in the user's home, not the workspace).
   function helperDir(cfg) {
-    const ws = (cfg.workspace && String(cfg.workspace).trim()) || workspaceRoot() || ''
-    return ws.replace(/[\\/]+$/, '') + '/.dsh-feishu'
+    return join(homedir(), '.cc-connect')
   }
 
-  // ---- per-chat session state persistence (.dsh-feishu/state.json) ----
+  // ---- per-chat session state persistence (~/.cc-connect/state.json) ----
   async function loadState(cfg) {
     if (stateCache !== undefined) return stateCache
     stateCache = { chats: {} }
     try {
-      const target = await ctx.fs.resolve('state.json', { cwd: helperDir(cfg) })
-      const text = await ctx.fs.readText(target)
-      const parsed = JSON.parse(text)
+      const target = join(helperDir(cfg), 'state.json')
+      if (!existsSync(target)) return stateCache
+      const parsed = JSON.parse(readFileSync(target, 'utf8'))
       if (parsed && typeof parsed === 'object' && parsed.chats && typeof parsed.chats === 'object') {
         stateCache = parsed
       }
@@ -89,8 +93,9 @@ export function apply(ctx) {
 
   async function saveState(cfg) {
     try {
-      const target = await ctx.fs.resolve('state.json', { cwd: helperDir(cfg) })
-      await ctx.fs.writeText(target, JSON.stringify(stateCache || { chats: {} }, null, 2))
+      const target = join(helperDir(cfg), 'state.json')
+      mkdirSync(helperDir(cfg), { recursive: true })
+      writeFileSync(target, JSON.stringify(stateCache || { chats: {} }, null, 2))
     } catch (error) {
       console.log('[feishu] state save failed: ' + String(error && error.message || error))
     }
@@ -707,7 +712,7 @@ export function apply(ctx) {
       await writeConfig(next)
       lastConfigCheck = 0
       void ensureHelper()
-      respondJson(res, 200, { ok: true, message: '配置已保存到 ' + (workspaceRoot() || '?') + '/feishu.config.json' })
+      respondJson(res, 200, { ok: true, message: '配置已保存到 ' + configPath() })
     } catch (error) {
       respondJson(res, 500, { ok: false, message: '保存失败: ' + String(error && error.message || error) })
     }
@@ -766,7 +771,7 @@ export function apply(ctx) {
   // ---- model tool: send a Feishu text message on demand ----
   const tool = defineTool({
     name: 'feishu_send',
-    description: 'Send a text message to a Feishu chat through the configured app bot (feishu.config.json appId/appSecret). chatId is optional: it defaults to the most recent chat that messaged the bot.',
+    description: 'Send a text message to a Feishu chat through the configured app bot (~/.cc-connect/feishu.config.json appId/appSecret). chatId is optional: it defaults to the most recent chat that messaged the bot.',
     parameters: {
       text: { type: 'string', required: true, description: 'Text content to send.' },
       chatId: { type: 'string', description: 'Target chat id (oc_...). Omit to send to the most recent chat that messaged the bot.' },
@@ -806,7 +811,6 @@ export function apply(ctx) {
     }
   })
 
-  console.log('[feishu] bridge active (static, long-connection mode). config: '
-    + (workspaceRoot() || '?') + '/feishu.config.json')
+  console.log('[feishu] bridge active (static, long-connection mode). config: ' + configPath())
   void ensureHelper()
 }

@@ -34,7 +34,7 @@ dsh plugin --profile web add github:limingboGitHub/dsh-feishu-connect
 dsh web
 ```
 
-然后在 **设置 → 飞书机器人** 填入 工作区 + AppID + AppSecret 并保存（无需手动创建 `feishu.config.json`，设置页会自动写入工作区根目录）。
+然后在 **设置 → 飞书机器人** 填入 工作区 + AppID + AppSecret 并保存。配置写入 **`~/.cc-connect/feishu.config.json`**（与 cc-connect 相同的约定：全局配置在用户主目录，与任何代码仓库/工作区解耦），无需手动创建。会话状态持久化在 `~/.cc-connect/state.json`。
 
 > 手动安装（无 pnpm 环境）备选：把包放进 `$DSH_HOME/profiles/node_modules/`，在 profile 的 `cordis.patch.yml` 加入下面两行，重启即可：
 > ```yaml
@@ -80,8 +80,8 @@ dsh plugin --profile web add @yourname/dsh-feishu-connect
                                    client.js（设置页 UI，行 dsh-feishu-connect）
 ```
 
-- 配置：工作区根目录 `feishu.config.json`（`{ workspace, appId, appSecret, reactionEmoji? }`），热读；模板见包内 `feishu.config.example.json`（也可直接在设置页填写并保存）
-- 会话状态：`<workspace>/.dsh-feishu/state.json`
+- 配置：`~/.cc-connect/feishu.config.json`（`{ workspace, appId, appSecret, reactionEmoji? }`），热读；模板见包内 `feishu.config.example.json`（也可直接在设置页填写并保存）
+- 会话状态：`~/.cc-connect/state.json`
 - Host 插件注册：`feishu_send` 工具、`/feishu/admin/*` 路由、helper 进程管理（崩溃自动重启、凭据变更自动重连）
 
 ## 开发

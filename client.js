@@ -97,7 +97,7 @@ window.__ModuleLoader__.load({
             const btnStyle = { padding: '6px 14px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', cursor: 'pointer' }
 
             return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '520px' } },
-              h('p', { style: labelStyle }, '配置写入工作区根目录的 feishu.config.json；长连接模式无需公网地址。桥接目标：配置的 workspace 对应的会话。支持 /new /switch /list /help 命令。'),
+              h('p', { style: labelStyle }, '配置写入 ~/.cc-connect/feishu.config.json（与 cc-connect 同目录）；长连接模式无需公网地址。桥接目标：配置的 workspace 对应的会话。支持 /new /switch /list /help 命令。'),
               h('div', { style: rowStyle },
                 h('label', { style: labelStyle }, '工作区路径 (workspace)'),
                 h('input', { style: inputStyle, value: form.workspace, placeholder: 'D:\\path\\to\\workspace', onChange: (e) => setForm((f) => ({ ...f, workspace: e.target.value })) }),
