@@ -6,3 +6,4 @@ feishu.config.json
 .dsh-feishu/
 *.local
 .DS_Store
+package-lock.json
