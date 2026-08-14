@@ -415,15 +415,14 @@ export function apply(ctx) {
       return
     }
 
-    const mainAgent = pickAgent(cfg.workspace)
+    // Feishu messages always go to a dedicated session owned by this chat —
+    // never to a GUI session (pickAgent matches the configured workspace's
+    // live agent, which is the GUI session the user is looking at). Each chat
+    // gets its own agent session pool, created on first message.
     const chat = await bot.ensureChat(chatId)
-    let agent = await bot.resolveActiveAgent(chat, mainAgent)
+    let agent = await bot.resolveActiveAgent(chat)
     if (!agent) {
-      // No live agent session in the configured workspace yet — auto-create one
-      // bound to that workspace instead of failing, so the first message from a
-      // brand-new bot just works (the user does not have to open a session in
-      // the GUI first).
-      console.log('[feishu] no live agent in workspace ' + (cfg.workspace || '?') + '; auto-creating one')
+      console.log('[feishu] creating dedicated session for chat ' + chatId + ' (workspace ' + (cfg.workspace || '?') + ')')
       try {
         const sessionId = 'feishu-main-' + Date.now().toString(36)
         const handle = await createDedicated(bot, sessionId, undefined)
@@ -435,8 +434,8 @@ export function apply(ctx) {
         await bot.persistChat(chatId, chat)
       } catch (error) {
         console.log('[feishu] auto-create agent failed: ' + String(error && error.stack || error))
-        await sendFeishuText(bot, chatId, '当前没有可用的 Agent 会话，且自动创建失败：'
-          + (cfg.workspace || workspaceRoot() || '?') + '。请先在工作区打开一个会话，或发送 /new 手动创建。')
+        await sendFeishuText(bot, chatId, '创建 Agent 会话失败：'
+          + (cfg.workspace || workspaceRoot() || '?') + '。请检查工作区配置后重试，或发送 /new 手动创建。')
         return
       }
     }
@@ -713,7 +712,10 @@ export function apply(ctx) {
       async resolveActiveAgent(chat, mainAgent) {
         const entry = chat.sessions[chat.activeIndex]
         if (!entry) return undefined
-        if (entry.type === 'main') return mainAgent
+        // 'main' entries no longer resolve to a GUI session — every chat owns
+        // its sessions; a persisted 'main' record without a dedicated id is a
+        // legacy entry, treat it as needing (re)creation.
+        if (entry.type === 'main') return undefined
         if (entry.handle) return entry.handle.agent
         try {
           const handle = await resumeDedicated(this, entry.id, mainAgent)
