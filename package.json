@@ -19,7 +19,8 @@
     "README.md"
   ],
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.73.0"
+    "@larksuiteoapi/node-sdk": "^1.73.0",
+    "qrcode": "^1.5.4"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.5"

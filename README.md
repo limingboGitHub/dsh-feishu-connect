@@ -11,6 +11,7 @@
 - **会话**：按配置工作区精确匹配主会话；每聊天独立会话持久化（重启后自动恢复）；`agents.create/resume` 均注入模型选项（修复 `{{model}}` 变量缺失）
 - **处理中表情**：消息到达加 `OnIt` 表情，回复送达后撤销（cc-connect 时机）；可配置 `reactionEmoji`，`none` 关闭
 - **设置页**：设置 → 飞书机器人（工作区 / AppID / AppSecret / 状态 / 测试发送）
+- **扫码创建**：设置页生成二维码，用飞书 App 扫码即自动创建机器人并获取 AppID/AppSecret（飞书官方应用注册流程，无需手动去开放平台建应用）
 - **工具**：`feishu_send`（Agent 可主动发消息，缺省发到最近会话）
 
 ## 安装（用户侧）
@@ -35,6 +36,8 @@ dsh web
 ```
 
 然后在 **设置 → 飞书机器人** 填入 工作区 + AppID + AppSecret 并保存。配置写入 **`~/.cc-connect/feishu.config.json`**（与 cc-connect 相同的约定：全局配置在用户主目录，与任何代码仓库/工作区解耦），无需手动创建。会话状态持久化在 `~/.cc-connect/state.json`。
+
+**没有机器人？** 设置页点「生成二维码」→ 用飞书 App 扫码 → 自动创建机器人并回填 AppID/AppSecret → 点「保存配置」即完成绑定（飞书官方应用注册流程，无需去开放平台手动建应用；权限与事件订阅通常自动预配，建议在开放平台核验发布状态）。
 
 > 手动安装（无 pnpm 环境）备选：把包放进 `$DSH_HOME/profiles/node_modules/`，在 profile 的 `cordis.patch.yml` 加入下面两行，重启即可：
 > ```yaml

@@ -91,6 +91,51 @@ window.__ModuleLoader__.load({
               })
             }
 
+            // ---- scan-to-create robot (Feishu official app-registration device flow) ----
+            const [scan, setScan] = React.useState({ active: false, qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
+            const scanTimer = React.useRef(null)
+
+            const startScan = () => {
+              setScan({ active: true, qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
+              admin('onboard', { method: 'POST', body: '{}' }).then((v) => {
+                if (!v || !v.ok) throw new Error(String((v && v.message) || '生成二维码失败'))
+                setScan((s) => ({
+                  ...s,
+                  qrDataUrl: typeof v.qrDataUrl === 'string' ? v.qrDataUrl : '',
+                  userCode: typeof v.userCode === 'string' ? v.userCode : '',
+                  deviceCode: typeof v.deviceCode === 'string' ? v.deviceCode : '',
+                }))
+                const intervalMs = (typeof v.interval === 'number' && v.interval > 0 ? v.interval : 5) * 1000
+                if (scanTimer.current) clearInterval(scanTimer.current)
+                scanTimer.current = setInterval(() => {
+                  const code = typeof v.deviceCode === 'string' ? v.deviceCode : ''
+                  if (!code) return
+                  admin('onboard/poll', { method: 'POST', body: JSON.stringify({ deviceCode: code }) }).then((p) => {
+                    if (p && p.done && typeof p.appId === 'string' && typeof p.appSecret === 'string') {
+                      if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
+                      setScan((s) => ({ ...s, done: true, error: '' }))
+                      setForm((f) => ({ ...f, appId: p.appId, appSecret: p.appSecret, hasSecret: true }))
+                      setNotice('扫码成功！已获取 AppID/AppSecret，请点击「保存配置」完成绑定。')
+                      refresh()
+                    } else if (p && p.error) {
+                      if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
+                      setScan((s) => ({ ...s, error: String(p.message || p.error) }))
+                    }
+                  }).catch((e) => {
+                    if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
+                    setScan((s) => ({ ...s, error: '轮询失败: ' + String((e && e.message) || e) }))
+                  })
+                }, intervalMs)
+              }).catch((e) => {
+                setScan((s) => ({ ...s, error: String((e && e.message) || e) }))
+              })
+            }
+
+            const stopScan = () => {
+              if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
+              setScan({ active: false, qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: false })
+            }
+
             const rowStyle = { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }
             const labelStyle = { fontSize: '12px', opacity: 0.75 }
             const inputStyle = { padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', width: '100%', boxSizing: 'border-box' }
@@ -116,6 +161,18 @@ window.__ModuleLoader__.load({
               ),
               h('div', { style: { display: 'flex', gap: '10px', marginBottom: '12px' } },
                 h('button', { style: btnStyle, onClick: save, disabled: busy }, busy ? '处理中...' : '保存配置'),
+              ),
+              h('hr', { style: { border: 'none', borderTop: '1px solid rgba(128,128,128,0.25)', margin: '8px 0 12px' } }),
+              h('div', { style: rowStyle },
+                h('label', { style: labelStyle }, '没有机器人？扫码一键创建（飞书官方注册流程，自动获取 AppID/AppSecret）'),
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } },
+                  h('button', { style: btnStyle, onClick: startScan, disabled: scan.active || busy }, scan.active ? '等待扫码...' : '生成二维码'),
+                  scan.active ? h('button', { style: btnStyle, onClick: stopScan }, '取消') : null,
+                ),
+                scan.qrDataUrl ? h('img', { src: scan.qrDataUrl, alt: '扫码创建机器人', style: { width: '220px', height: '220px', marginBottom: '8px', border: '1px solid rgba(128,128,128,0.35)', borderRadius: '6px' } }) : null,
+                scan.userCode ? h('div', { style: { fontSize: '12px', marginBottom: '8px' } }, '验证码: ' + scan.userCode + '（也可在飞书里输入）') : null,
+                scan.error ? h('div', { style: { fontSize: '12px', color: '#e5534b', marginBottom: '8px', wordBreak: 'break-all' } }, scan.error) : null,
+                scan.done ? h('div', { style: { fontSize: '12px', marginBottom: '8px' } }, '✅ 已获取 AppID/AppSecret，已填入上方表单，点击「保存配置」完成绑定。') : null,
               ),
               notice ? h('div', { style: { fontSize: '12px', marginBottom: '12px', wordBreak: 'break-all' } }, notice) : null,
               h('hr', { style: { border: 'none', borderTop: '1px solid rgba(128,128,128,0.25)', margin: '8px 0 12px' } }),

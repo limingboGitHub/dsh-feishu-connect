@@ -741,6 +741,111 @@ export function apply(ctx) {
     }
   }
 
+  // ---- Feishu official app-registration onboarding (device flow).
+  // POST https://accounts.feishu.cn/oauth/v1/app/registration with
+  // form-encoded { action, ... } — the same public API cc-connect uses:
+  //   init  -> supported_auth_methods (must include client_secret)
+  //   begin -> device_code + verification_uri_complete (the QR payload)
+  //   poll  -> client_id/client_secret once the user scanned and confirmed
+  const onboardingBase = 'https://accounts.feishu.cn/oauth/v1/app/registration'
+  const onboardingForm = (params) => {
+    const parts = Object.entries(params).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v)))
+    return { body: parts.join('&'), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  }
+
+  async function onboardingCall(params) {
+    const init = onboardingForm({ action: 'init' })
+    const initRes = await fetch(onboardingBase, { method: 'POST', headers: init.headers, body: init.body })
+    if (!initRes.ok) throw new Error('onboarding init http ' + initRes.status)
+    const initData = await initRes.json()
+    if (!Array.isArray(initData.supported_auth_methods)
+      || !initData.supported_auth_methods.some((m) => String(m).toLowerCase() === 'client_secret')) {
+      throw new Error('current environment does not support client_secret auth')
+    }
+    const begin = onboardingForm({ action: 'begin', ...params })
+    const beginRes = await fetch(onboardingBase, { method: 'POST', headers: begin.headers, body: begin.body })
+    if (!beginRes.ok) throw new Error('onboarding begin http ' + beginRes.status)
+    const beginData = await beginRes.json()
+    if (beginData.error) throw new Error(String(beginData.error) + ': ' + String(beginData.error_description || ''))
+    return beginData
+  }
+
+  async function onboardingPoll(deviceCode) {
+    const form = onboardingForm({ action: 'poll', device_code: deviceCode })
+    const res = await fetch(onboardingBase, { method: 'POST', headers: form.headers, body: form.body })
+    if (!res.ok) throw new Error('onboarding poll http ' + res.status)
+    return await res.json()
+  }
+
+  async function handleAdminOnboard(req, res) {
+    try {
+      const data = await onboardingCall({
+        archetype: 'PersonalAgent',
+        auth_method: 'client_secret',
+        request_user_info: 'open_id',
+      })
+      if (!data.device_code || !data.verification_uri_complete) {
+        throw new Error('incomplete onboarding response')
+      }
+      // qrcode is a CJS package; dynamic import keeps this ESM host plugin clean.
+      let qrDataUrl = ''
+      try {
+        const { toDataURL } = await import('qrcode')
+        qrDataUrl = await toDataURL(data.verification_uri_complete, { margin: 1, width: 240 })
+      } catch (error) {
+        console.log('[feishu] qr render failed: ' + String(error && error.message || error))
+      }
+      respondJson(res, 200, {
+        ok: true,
+        deviceCode: data.device_code,
+        qrContent: data.verification_uri_complete,
+        qrDataUrl,
+        userCode: typeof data.user_code === 'string' ? data.user_code : '',
+        expiresIn: typeof data.expires_in === 'number' ? data.expires_in : 3600,
+        interval: typeof data.interval === 'number' ? data.interval : 5,
+      })
+    } catch (error) {
+      respondJson(res, 500, { ok: false, message: String(error && error.message || error) })
+    }
+  }
+
+  async function handleAdminOnboardPoll(req, res) {
+    let body = {}
+    try {
+      body = JSON.parse(await readBody(req, 65536)) || {}
+    } catch {
+      respondJson(res, 400, { ok: false, message: 'invalid json body' })
+      return
+    }
+    const deviceCode = body.deviceCode
+    if (typeof deviceCode !== 'string' || deviceCode.length === 0) {
+      respondJson(res, 400, { ok: false, message: 'deviceCode required' })
+      return
+    }
+    try {
+      const data = await onboardingPoll(deviceCode)
+      if (data.error && data.error !== 'authorization_pending') {
+        respondJson(res, 200, { ok: false, error: String(data.error), message: String(data.error_description || data.error) })
+        return
+      }
+      if (typeof data.client_id === 'string' && typeof data.client_secret === 'string'
+        && data.client_id.length > 0 && data.client_secret.length > 0) {
+        respondJson(res, 200, {
+          ok: true,
+          done: true,
+          appId: data.client_id,
+          appSecret: data.client_secret,
+          ownerOpenId: data.user_info && typeof data.user_info.open_id === 'string' ? data.user_info.open_id : '',
+          platform: String(data.user_info && data.user_info.tenant_brand || 'feishu').toLowerCase(),
+        })
+        return
+      }
+      respondJson(res, 200, { ok: true, done: false, pending: true })
+    } catch (error) {
+      respondJson(res, 500, { ok: false, message: String(error && error.message || error) })
+    }
+  }
+
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/feishu/admin/status',
@@ -765,6 +870,22 @@ export function apply(ctx) {
     handler: (req, res) => {
       if (req.method !== 'POST') return respondJson(res, 405, { ok: false, message: 'method not allowed' })
       void handleAdminSendTest(req, res)
+    },
+  }))
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/feishu/admin/onboard',
+    handler: (req, res) => {
+      if (req.method !== 'POST') return respondJson(res, 405, { ok: false, message: 'method not allowed' })
+      void handleAdminOnboard(req, res)
+    },
+  }))
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/feishu/admin/onboard/poll',
+    handler: (req, res) => {
+      if (req.method !== 'POST') return respondJson(res, 405, { ok: false, message: 'method not allowed' })
+      void handleAdminOnboardPoll(req, res)
     },
   }))
 
