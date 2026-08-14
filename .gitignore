@@ -1,5 +1,7 @@
 node_modules/
 *.log
+*.tgz
+.npmrc
 feishu.config.json
 .dsh-feishu/
 *.local
