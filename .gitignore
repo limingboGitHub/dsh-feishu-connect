@@ -1,0 +1,6 @@
+node_modules/
+*.log
+feishu.config.json
+.dsh-feishu/
+*.local
+.DS_Store
