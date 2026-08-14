@@ -143,8 +143,9 @@ window.__ModuleLoader__.load({
                   admin('onboard/poll', { method: 'POST', body: JSON.stringify({ deviceCode: code }) }).then((p) => {
                     if (p && p.done && typeof p.appId === 'string' && typeof p.appSecret === 'string') {
                       if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
-                      setScan((s) => ({ ...s, done: true, error: '' }))
-                      // auto-add the new bot with its secret (no further secret entry needed)
+                      // close the QR immediately on successful scan; the bot is
+                      // saved in the background
+                      setScan({ active: false, appId: '', qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: true })
                       admin('config', { method: 'POST', body: JSON.stringify({
                         appId: p.appId,
                         appSecret: p.appSecret,
@@ -152,7 +153,6 @@ window.__ModuleLoader__.load({
                         name: '机器人 ' + p.appId,
                       }) }).then(() => {
                         setNotice('✅ 扫码成功！机器人 ' + p.appId + ' 已添加，App Secret 已自动保存。请点该机器人的「编辑」填写工作区路径。')
-                        setScan({ active: false, appId: '', qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: true })
                         refresh()
                       }).catch((e) => {
                         setNotice('扫码成功，但自动保存失败: ' + String((e && e.message) || e))
