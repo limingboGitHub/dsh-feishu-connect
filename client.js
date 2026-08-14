@@ -75,13 +75,14 @@ window.__ModuleLoader__.load({
                 workspace: bot ? bot.workspace : '',
                 appId: bot ? bot.appId : '',
                 appSecret: '',
+                hasSecret: bot ? !!bot.hasSecret : false,
               })
               setTestOut('')
             }
 
             const cancelEdit = () => {
               setEditing(null)
-              setDraft({ name: '', workspace: '', appId: '', appSecret: '' })
+              setDraft({ name: '', workspace: '', appId: '', appSecret: '', hasSecret: false })
             }
 
             const submitEdit = () => {
@@ -99,6 +100,12 @@ window.__ModuleLoader__.load({
                 // keep the stored secret unless a new one was typed
                 next = bots.map((b) => b.appId === appId ? { ...b, ...entry, appSecret: entry.appSecret || b.appSecret } : b)
               } else {
+                // new bot: a secret is required (scan-to-create already saved one,
+                // so a fresh manual add must not silently save without a secret)
+                if (!entry.appSecret) {
+                  setNotice('新机器人需要填写 App Secret（扫码创建的机器人已自动保存，无需再填）')
+                  return
+                }
                 next = [...bots, entry]
               }
               saveBots(next, () => cancelEdit())
@@ -137,16 +144,18 @@ window.__ModuleLoader__.load({
                     if (p && p.done && typeof p.appId === 'string' && typeof p.appSecret === 'string') {
                       if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
                       setScan((s) => ({ ...s, done: true, error: '' }))
-                      // auto-add the new bot to the list via the config upsert
+                      // auto-add the new bot with its secret (no further secret entry needed)
                       admin('config', { method: 'POST', body: JSON.stringify({
                         appId: p.appId,
                         appSecret: p.appSecret,
                         workspace: '',
                         name: '机器人 ' + p.appId,
                       }) }).then(() => {
-                        setNotice('扫码成功！已自动添加机器人 ' + p.appId + '，请编辑其工作区路径后保存。')
+                        setNotice('✅ 扫码成功！机器人 ' + p.appId + ' 已添加，App Secret 已自动保存。请点该机器人的「编辑」填写工作区路径。')
+                        setScan({ active: false, appId: '', qrDataUrl: '', userCode: '', deviceCode: '', error: '', done: true })
                         refresh()
-                        startEdit({ name: '机器人 ' + p.appId, workspace: '', appId: p.appId, appSecret: '' })
+                      }).catch((e) => {
+                        setNotice('扫码成功，但自动保存失败: ' + String((e && e.message) || e))
                       })
                     } else if (p && p.error) {
                       if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = null }
@@ -258,8 +267,8 @@ window.__ModuleLoader__.load({
                       input('appId', 'cli_...'),
                     ),
                     h('div', { style: rowStyle },
-                      h('label', { style: labelStyle }, 'App Secret'),
-                      input('appSecret', '请输入 App Secret', 'password'),
+                      h('label', { style: labelStyle }, 'App Secret' + (draft.hasSecret ? '（已配置，留空保持不变）' : '')),
+                      input('appSecret', draft.hasSecret ? '已配置，留空保持不变' : '请输入 App Secret', 'password'),
                     ),
                     h('div', { style: { display: 'flex', gap: '10px' } },
                       h('button', { style: btnStyle, onClick: submitEdit, disabled: busy }, busy ? '处理中...' : '保存'),

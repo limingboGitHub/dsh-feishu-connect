@@ -768,13 +768,24 @@ export function apply(ctx) {
     const current = await readConfig()
     let next = current.map((c) => ({ ...c }))
     if (Array.isArray(body.bots)) {
-      next = body.bots.map((b) => ({
+      // The client's bot list never carries appSecret (status only exposes
+      // hasSecret); preserve the stored secret when the payload leaves it
+      // empty, and keep any removed-by-absent bot out of the list.
+      const incoming = body.bots.map((b) => ({
         name: typeof b.name === 'string' ? b.name.trim() : '',
         workspace: typeof b.workspace === 'string' ? b.workspace.trim() : '',
         appId: typeof b.appId === 'string' ? b.appId.trim() : '',
         appSecret: typeof b.appSecret === 'string' ? b.appSecret.trim() : '',
         reactionEmoji: typeof b.reactionEmoji === 'string' ? b.reactionEmoji : undefined,
       })).filter((b) => b.appId)
+      next = incoming.map((b) => {
+        const prev = current.find((c) => c.appId === b.appId)
+        return {
+          ...b,
+          appSecret: b.appSecret || (prev ? prev.appSecret : ''),
+          reactionEmoji: b.reactionEmoji !== undefined ? b.reactionEmoji : (prev ? prev.reactionEmoji : undefined),
+        }
+      })
     } else if (body.appId) {
       // single-bot payload: upsert into the list
       const index = next.findIndex((c) => c.appId === String(body.appId).trim())
