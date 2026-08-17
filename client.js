@@ -189,6 +189,19 @@ window.__ModuleLoader__.load({
               })
             }
 
+            const toggleBot = (bot) => {
+              setBusy(true)
+              setNotice('')
+              admin('toggle', { method: 'POST', body: JSON.stringify({ appId: bot.appId }) }).then((v) => {
+                setBusy(false)
+                setNotice(String(v.message || (v.ok ? '已切换' : '切换失败')))
+                refresh()
+              }).catch((e) => {
+                setBusy(false)
+                setNotice('切换失败: ' + String((e && e.message) || e))
+              })
+            }
+
             const rowStyle = { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' }
             const labelStyle = { fontSize: '12px', opacity: 0.75 }
             const inputStyle = { padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.35)', background: 'transparent', color: 'inherit', width: '100%', boxSizing: 'border-box' }
@@ -215,13 +228,15 @@ window.__ModuleLoader__.load({
                 h('div', { key: bot.appId, style: cardStyle },
                   h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' } },
                     h('span', { style: { fontWeight: 600, fontSize: '13px' } }, bot.name || bot.appId),
-                    h('span', { style: { fontSize: '12px' } }, '连接状态: ' + bot.connection),
+                    h('span', { style: { fontSize: '12px' } },
+                      bot.enabled === false ? '已停用' : ('连接状态: ' + bot.connection)),
                   ),
                   h('div', { style: { fontSize: '12px', marginBottom: '6px', wordBreak: 'break-all', opacity: 0.8 } },
                     'AppID: ' + bot.appId + ' | 工作区: ' + (bot.workspace || '（未设置）') + (bot.hasSecret ? '' : ' | ⚠️ 未配置 Secret'),
                   ),
                   bot.lastChatId ? h('div', { style: { fontSize: '12px', marginBottom: '6px', opacity: 0.6 } }, '最近会话: ' + bot.lastChatId) : null,
                   h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+                    h('button', { style: { ...btnStyle, ...(bot.enabled === false ? { borderColor: 'rgba(229,83,75,0.6)', color: '#e5534b' } : {}) }, onClick: () => toggleBot(bot), disabled: busy }, bot.enabled === false ? '启用连接' : '停用连接'),
                     h('button', { style: btnStyle, onClick: () => startEdit(bot) }, '编辑'),
                     h('button', { style: btnStyle, onClick: () => sendTest(bot), disabled: busy }, '测试发送'),
                     h('button', { style: { ...btnStyle, color: '#e5534b' }, onClick: () => removeBot(bot.appId) }, '删除'),

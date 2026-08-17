@@ -67,6 +67,7 @@ export function apply(ctx) {
         appSecret: typeof bot.appSecret === 'string' ? bot.appSecret : '',
         reactionEmoji: typeof bot.reactionEmoji === 'string' ? bot.reactionEmoji : undefined,
         ownerOpenId: typeof bot.ownerOpenId === 'string' ? bot.ownerOpenId : '',
+        enabled: bot.enabled !== false,
       })
     }
     return cleaned
@@ -575,6 +576,17 @@ export function apply(ctx) {
         }
         continue
       }
+      // Connection switch: disabled bots have no helper process and are not
+      // respawned until enabled again.
+      if (cfg.enabled === false) {
+        if (bot.proc) {
+          console.log('[feishu] bot ' + appId + ' disabled; stopping helper')
+          try { bot.proc.kill() } catch { /* ignore */ }
+          bot.proc = undefined
+          bot.status = ''
+        }
+        continue
+      }
       if (!refresh && bot.proc && bot.proc.status === 'running') continue
       if (now - lastSpawnAt < 5000 && bot.proc && bot.proc.status === 'running') continue
       if (bot.proc && bot.proc.status === 'running' && bot.procKey === key) continue
@@ -771,6 +783,7 @@ export function apply(ctx) {
           workspace: cfg.workspace,
           appId: cfg.appId,
           hasSecret: !!(cfg.appSecret && String(cfg.appSecret).length > 0),
+          enabled: cfg.enabled !== false,
           connection: bot ? connectionLabel(bot) : 'idle',
           helperRunning: !!(bot && bot.proc && bot.proc.status === 'running'),
           lastChatId: bot ? bot.lastChatId : '',
@@ -804,6 +817,7 @@ export function apply(ctx) {
         appSecret: typeof b.appSecret === 'string' ? b.appSecret.trim() : '',
         reactionEmoji: typeof b.reactionEmoji === 'string' ? b.reactionEmoji : undefined,
         ownerOpenId: typeof b.ownerOpenId === 'string' ? b.ownerOpenId : '',
+        enabled: b.enabled !== false,
       })).filter((b) => b.appId)
       next = incoming.map((b) => {
         const prev = current.find((c) => c.appId === b.appId)
@@ -826,6 +840,7 @@ export function apply(ctx) {
           : (index >= 0 ? next[index].appSecret : ''),
         reactionEmoji: typeof body.reactionEmoji === 'string' ? body.reactionEmoji : (index >= 0 ? next[index].reactionEmoji : undefined),
         ownerOpenId: typeof body.ownerOpenId === 'string' ? body.ownerOpenId : (index >= 0 ? next[index].ownerOpenId : ''),
+        enabled: body.enabled !== undefined ? !!body.enabled : (index >= 0 ? next[index].enabled !== false : true),
       }
       if (index >= 0) next[index] = entry
       else next.push(entry)
@@ -866,6 +881,35 @@ export function apply(ctx) {
       bots.delete(appId)
     }
     respondJson(res, 200, { ok: true, message: '已删除机器人 ' + appId })
+  }
+
+  // Toggle a bot's connection at runtime: saves `enabled` and immediately
+  // starts/stops its helper process (no restart needed).
+  async function handleAdminToggle(req, res) {
+    let body = {}
+    try {
+      body = JSON.parse(await readBody(req, 65536)) || {}
+    } catch {
+      respondJson(res, 400, { ok: false, message: 'invalid json body' })
+      return
+    }
+    const appId = body.appId
+    if (typeof appId !== 'string' || appId.length === 0) {
+      respondJson(res, 400, { ok: false, message: 'appId required' })
+      return
+    }
+    const list = await readConfig()
+    const index = list.findIndex((c) => c.appId === appId)
+    if (index < 0) {
+      respondJson(res, 404, { ok: false, message: 'bot not found' })
+      return
+    }
+    const enabled = body.enabled !== undefined ? !!body.enabled : !(list[index].enabled !== false)
+    const next = list.map((c, i) => i === index ? { ...c, enabled } : c)
+    await writeConfig(next)
+    lastConfigCheck = 0
+    void ensureHelper()
+    respondJson(res, 200, { ok: true, enabled, message: (enabled ? '已启用' : '已停用') + '机器人 ' + appId })
   }
 
   function botFromBody(body) {
@@ -1038,6 +1082,14 @@ export function apply(ctx) {
     handler: (req, res) => {
       if (req.method !== 'POST') return respondJson(res, 405, { ok: false, message: 'method not allowed' })
       void handleAdminDeleteBot(req, res)
+    },
+  }))
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/feishu/admin/toggle',
+    handler: (req, res) => {
+      if (req.method !== 'POST') return respondJson(res, 405, { ok: false, message: 'method not allowed' })
+      void handleAdminToggle(req, res)
     },
   }))
   ctx.effect(() => ctx.webServer.register({
